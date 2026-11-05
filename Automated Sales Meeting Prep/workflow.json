@@ -12,13 +12,13 @@
           ]
         }
       },
-      "id": "32105c4e-286f-48b5-bd3e-65ca1e117de6",
+      "id": "cd96ecfc-1055-4778-9f0f-3df39e1055b6",
       "name": "Every Weekday 7 AM",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        0,
-        300
+        -32,
+        304
       ]
     },
     {
@@ -45,8 +45,8 @@
             },
             {
               "id": "74976449-5590-46ce-a8b1-ce543ffcdea4",
-              "name": "openaiModel",
-              "value": "gpt-4o-mini",
+              "name": "llmModel",
+              "value": "claude-haiku-4-5",
               "type": "string"
             },
             {
@@ -65,13 +65,13 @@
         },
         "options": {}
       },
-      "id": "08ec9a40-df34-423c-8604-efc44a923080",
+      "id": "00d0520e-f299-4c72-bdc1-f0ec3451a1ea",
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        220,
-        300
+        192,
+        304
       ]
     },
     {
@@ -79,37 +79,35 @@
         "operation": "getAll",
         "calendar": {
           "__rl": true,
-          "value": "primary",
-          "mode": "id"
+          "value": "",
+          "mode": "list"
         },
         "returnAll": true,
-        "timeMin": "={{ $now }}",
         "timeMax": "={{ $now.endOf('day') }}",
         "options": {
-          "singleEvents": true,
           "orderBy": "startTime"
         }
       },
-      "id": "7b42e565-042d-441f-9400-07ca7a133ece",
+      "id": "db31492c-1c1a-4112-b4ec-55a095d16e0d",
       "name": "Get Today's Meetings",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.3,
       "position": [
-        440,
-        300
+        400,
+        304
       ]
     },
     {
       "parameters": {
         "jsCode": "// Keep only meetings with at least one external attendee.\n// One output item per meeting, using the first external attendee as the main contact.\nconst cfg = $('Config').first().json;\nconst internalDomain = cfg.internalDomain.toLowerCase();\nconst personalDomains = cfg.personalEmailDomains.split(',').map(d => d.trim().toLowerCase());\n\nconst meetings = [];\nfor (const item of $input.all()) {\n  const ev = item.json;\n  const external = (ev.attendees || []).filter(a =>\n    a.email && !a.resource && !a.email.toLowerCase().endsWith('@' + internalDomain)\n  );\n  if (external.length === 0) continue;\n\n  const main = external[0];\n  const domain = main.email.split('@')[1].toLowerCase();\n\n  meetings.push({\n    json: {\n      eventId: ev.id,\n      title: ev.summary || '(no title)',\n      start: ev.start?.dateTime || ev.start?.date,\n      meetingLink: ev.hangoutLink || '',\n      agenda: ev.description || '',\n      attendeeEmail: main.email,\n      attendeeName: main.displayName || '',\n      companyDomain: domain,\n      isPersonalEmail: personalDomains.includes(domain),\n      otherAttendees: external.slice(1).map(a => a.email),\n    },\n  });\n}\nreturn meetings;"
       },
-      "id": "267816a8-e384-41bf-bd15-0000ae0120e1",
+      "id": "6f6a0d0f-d6b5-4822-b629-55d5a1bc1979",
       "name": "Extract Meeting Details",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        660,
-        300
+        624,
+        304
       ]
     },
     {
@@ -123,13 +121,13 @@
         "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: $json.attendeeEmail }] }], properties: ['firstname', 'lastname', 'jobtitle', 'company', 'lifecyclestage', 'hs_lead_status', 'notes_last_contacted', 'num_notes'], limit: 1 }) }}",
         "options": {}
       },
-      "id": "5e75baef-4ac4-4a95-a9d1-34e90a351889",
+      "id": "dfd94370-ad4f-4bf7-a465-d5d09838d3cc",
       "name": "Look Up Contact in HubSpot",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        900,
-        300
+        864,
+        304
       ],
       "retryOnFail": true,
       "maxTries": 3,
@@ -140,110 +138,84 @@
       "parameters": {
         "url": "=https://{{ $('Extract Meeting Details').item.json.companyDomain }}",
         "options": {
-          "timeout": 10000,
           "response": {
             "response": {
               "responseFormat": "text"
             }
-          }
+          },
+          "timeout": 10000
         }
       },
-      "id": "6eed492e-496c-4bf6-8043-be9e0961bd34",
+      "id": "3cd25256-8a6b-42d0-93a0-cbdaea502f8f",
       "name": "Fetch Company Website",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1120,
-        300
+        1088,
+        304
       ],
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Combine meeting details, CRM record and website text into one prompt for the LLM.\nconst cfg = $('Config').first().json;\nconst meeting = $('Extract Meeting Details').item.json;\nconst crm = $('Look Up Contact in HubSpot').item.json;\nconst contact = crm?.results?.[0]?.properties || null;\n\n// Strip HTML down to readable text and cap the length to control token cost.\nconst html = typeof $json.data === 'string' ? $json.data : '';\nconst websiteText = meeting.isPersonalEmail ? '' : html\n  .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n  .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\n  .replace(/<[^>]+>/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim()\n  .slice(0, cfg.maxWebsiteChars);\n\nconst systemPrompt = `You are a sales assistant preparing a rep for an upcoming call.\nUse only the information provided. If something is unknown, say so. Do not invent facts.\nReturn a JSON object with these keys:\n\"summary\" (2 sentences on who this is and why the meeting matters),\n\"about_company\" (string),\n\"about_person\" (string),\n\"relationship_history\" (string, based on CRM data),\n\"talking_points\" (array of 3 to 5 strings),\n\"questions_to_ask\" (array of 3 to 5 strings),\n\"risks\" (array of strings, possible objections or red flags).`;\n\nconst userPrompt = `MEETING\nTitle: ${meeting.title}\nStart: ${meeting.start}\nAgenda: ${meeting.agenda || 'none'}\n\nATTENDEE\nName: ${meeting.attendeeName || 'unknown'}\nEmail: ${meeting.attendeeEmail}\nCompany domain: ${meeting.companyDomain}\n\nCRM RECORD\n${contact ? JSON.stringify(contact, null, 2) : 'No CRM record found. Treat as a new contact.'}\n\nCOMPANY WEBSITE (homepage text)\n${websiteText || 'Not available.'}`;\n\nreturn {\n  json: {\n    ...meeting,\n    crmFound: !!contact,\n    messages: [\n      { role: 'system', content: systemPrompt },\n      { role: 'user', content: userPrompt },\n    ],\n  },\n};"
+        "jsCode": "// Combine meeting details, CRM record and website text into one prompt for the LLM.\nconst cfg = $('Config').first().json;\nconst meeting = $('Extract Meeting Details').item.json;\nconst crm = $('Look Up Contact in HubSpot').item.json;\nconst contact = crm?.results?.[0]?.properties || null;\n\n// Strip HTML down to readable text and cap the length to control token cost.\nconst html = typeof $json.data === 'string' ? $json.data : '';\nconst websiteText = meeting.isPersonalEmail ? '' : html\n  .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n  .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\n  .replace(/<[^>]+>/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim()\n  .slice(0, cfg.maxWebsiteChars);\n\nconst systemPrompt = `You are a sales assistant preparing a rep for an upcoming call.\nUse only the information provided. If something is unknown, say so. Do not invent facts. Respond with only the JSON object. No text before or after it. Use short, direct sentences. Do not use em dashes.\nReturn a JSON object with these keys:\n\"summary\" (2 sentences on who this is and why the meeting matters),\n\"about_company\" (string),\n\"about_person\" (string, their role and likely responsibilities only),\n\"relationship_history\" (string, CRM status and past contact only),\n\"talking_points\" (array of 3 to 5 strings),\n\"questions_to_ask\" (array of 3 to 5 strings),\n\"risks\" (array of strings, possible objections or red flags).`;\n\nconst userPrompt = `MEETING\nTitle: ${meeting.title}\nStart: ${meeting.start}\nAgenda: ${meeting.agenda || 'none'}\n\nATTENDEE\nName: ${meeting.attendeeName || 'unknown'}\nEmail: ${meeting.attendeeEmail}\nCompany domain: ${meeting.companyDomain}\n\nCRM RECORD\n${contact ? JSON.stringify(contact, null, 2) : 'No CRM record found. Treat as a new contact.'}\n\nCOMPANY WEBSITE (homepage text)\n${websiteText || 'Not available.'}`;\n\nreturn {\n  json: {\n    ...meeting,\n    attendeeName: meeting.attendeeName || [contact?.firstname, contact?.lastname].filter(Boolean).join(' '),\n    crmFound: !!contact,\n    systemPrompt,\n    userPrompt,\n  },\n};"
       },
-      "id": "65b980f9-e2f7-4197-ae94-c01caa1bbe5c",
+      "id": "ac931de2-f353-4081-93cb-ff1d06a8eea3",
       "name": "Build Research Context",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1340,
-        300
+        1312,
+        304
       ]
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.openai.com/v1/chat/completions",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "openAiApi",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $('Config').first().json.openaiModel, temperature: 0.3, response_format: { type: 'json_object' }, messages: $json.messages }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "973d3ff9-1611-4d3e-8e03-afb7f7fae739",
-      "name": "Generate Prep Brief (OpenAI)",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1560,
-        300
-      ],
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
-    },
-    {
-      "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Turn the LLM JSON output into an HTML email.\nconst cfg = $('Config').first().json;\nconst meeting = $('Build Research Context').item.json;\n\nlet brief;\ntry {\n  brief = JSON.parse($json.choices[0].message.content);\n} catch (e) {\n  brief = { summary: 'The AI response could not be parsed. Check the execution log.' };\n}\n\nconst list = arr => (Array.isArray(arr) && arr.length)\n  ? '<ul>' + arr.map(x => `<li>${x}</li>`).join('') + '</ul>'\n  : '<p>None</p>';\n\nconst startTime = new Date(meeting.start).toLocaleTimeString('en-US', {\n  hour: 'numeric', minute: '2-digit', timeZone: cfg.timezone,\n});\n\nconst html = `\n<h2>${meeting.title}</h2>\n<p><b>Time:</b> ${startTime} &nbsp; <b>With:</b> ${meeting.attendeeName || meeting.attendeeEmail} (${meeting.companyDomain})</p>\n${meeting.meetingLink ? `<p><a href=\"${meeting.meetingLink}\">Join meeting</a></p>` : ''}\n<p>${brief.summary || ''}</p>\n<h3>Company</h3><p>${brief.about_company || 'Unknown'}</p>\n<h3>Person</h3><p>${brief.about_person || 'Unknown'}</p>\n<h3>Relationship history</h3><p>${brief.relationship_history || 'No CRM record.'}</p>\n<h3>Talking points</h3>${list(brief.talking_points)}\n<h3>Questions to ask</h3>${list(brief.questions_to_ask)}\n<h3>Risks</h3>${list(brief.risks)}\n`;\n\nreturn {\n  json: {\n    to: cfg.repEmail,\n    subject: `Meeting prep: ${meeting.title} at ${startTime}`,\n    html,\n  },\n};"
+        "jsCode": "// Turn the Claude JSON output into an HTML email.\nconst cfg = $('Config').first().json;\nconst meeting = $('Build Research Context').item.json;\n\nlet brief;\ntry {\n  const text = $json.content[0].text;\n  brief = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));\n} catch (e) {\n  brief = { summary: 'The AI response could not be parsed. Check the execution log.' };\n}\n\nconst list = arr => (Array.isArray(arr) && arr.length)\n  ? '<ul>' + arr.map(x => `<li>${x}</li>`).join('') + '</ul>'\n  : '<p>None</p>';\n\nconst startTime = new Date(meeting.start).toLocaleTimeString('en-US', {\n  hour: 'numeric', minute: '2-digit', timeZone: cfg.timezone,\n});\n\nconst html = `\n<h2>${meeting.title}</h2>\n<p><b>Time:</b> ${startTime} &nbsp; <b>With:</b> ${meeting.attendeeName || meeting.attendeeEmail} (${meeting.companyDomain})</p>\n${meeting.meetingLink ? `<p><a href=\"${meeting.meetingLink}\">Join meeting</a></p>` : ''}\n<p>${brief.summary || ''}</p>\n<h3>Company</h3><p>${brief.about_company || 'Unknown'}</p>\n<h3>Person</h3><p>${brief.about_person || 'Unknown'}</p>\n<h3>Relationship history</h3><p>${brief.relationship_history || 'No CRM record.'}</p>\n<h3>Talking points</h3>${list(brief.talking_points)}\n<h3>Questions to ask</h3>${list(brief.questions_to_ask)}\n<h3>Risks</h3>${list(brief.risks)}\n`;\n\nreturn {\n  json: {\n    to: cfg.repEmail,\n    subject: `Meeting prep: ${meeting.title} at ${startTime}`,\n    html,\n  },\n};"
       },
-      "id": "c91f6447-66b4-4c75-8a4b-f47a6ff23092",
+      "id": "f6b93813-6be0-4f40-8209-56945f2acdbe",
       "name": "Format Brief as Email",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1780,
-        300
+        1744,
+        304
       ]
     },
     {
       "parameters": {
         "sendTo": "={{ $json.to }}",
         "subject": "={{ $json.subject }}",
-        "emailType": "html",
         "message": "={{ $json.html }}",
         "options": {
           "appendAttribution": false
         }
       },
-      "id": "76a9978d-600a-488f-b5c0-8a722684a563",
+      "id": "060362e5-08fd-422a-b0a8-08439d9e5d6f",
       "name": "Send Brief to Rep",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
       "position": [
-        2000,
-        300
+        1968,
+        304
       ]
     },
     {
       "parameters": {
-        "content": "## Automated Sales Meeting Prep\nEvery weekday at 7 AM, finds today's meetings with external attendees, researches each contact (CRM + company website) and emails the rep a one-page prep brief.\n\n**Setup:** fill in the Config node, then connect Google Calendar, HubSpot (private app token), OpenAI and Gmail credentials.",
+        "content": "## Automated Sales Meeting Prep\nEvery weekday at 7 AM, finds today's meetings with external attendees, researches each contact (CRM + company website) and emails the rep a one-page prep brief.\n\n**Setup:** fill in the Config node, then connect Google Calendar, HubSpot (service key), Anthropic and Gmail credentials.",
         "height": 240,
         "width": 480,
         "color": 6
       },
-      "id": "ac6d0b13-fd8f-40ec-aa04-49d4dbba157f",
-      "name": "Note 10",
+      "id": "ee86d313-507e-4b8f-8d67-9390fc99037e",
+      "name": "Overview",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        -40,
-        -40
+        -96,
+        -128
       ]
     },
     {
@@ -253,12 +225,12 @@
         "width": 440,
         "color": 7
       },
-      "id": "97b88f61-940d-4395-a6ae-0622b98eb22e",
-      "name": "Note 11",
+      "id": "87dc0f29-f3d7-4d4f-bbe6-bb46d99bb72c",
+      "name": "Section 1",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        400,
+        368,
         160
       ]
     },
@@ -269,12 +241,12 @@
         "width": 640,
         "color": 7
       },
-      "id": "543cea62-6769-4aa2-85d2-09c3436bda28",
-      "name": "Note 12",
+      "id": "035eb035-034a-4865-8225-85832cc63a03",
+      "name": "Section 2",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        860,
+        832,
         160
       ]
     },
@@ -285,16 +257,51 @@
         "width": 640,
         "color": 7
       },
-      "id": "822ca2c4-0b35-4479-84b1-48e42330d6b2",
-      "name": "Note 13",
+      "id": "6ef44ce9-a7a7-4e65-9e1e-cb38fbf8e28e",
+      "name": "Section 3",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        1520,
+        1488,
         160
       ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Config').first().json.llmModel, max_tokens: 1500, temperature: 0.3, system: $json.systemPrompt, messages: [{ role: 'user', content: $json.userPrompt }] }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "d54cba69-9173-4fa0-96f1-0e4b039f5bc8",
+      "name": "Generate Prep Brief (Claude)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        304
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     }
   ],
+  "pinData": {},
   "connections": {
     "Every Weekday 7 AM": {
       "main": [
@@ -366,18 +373,7 @@
       "main": [
         [
           {
-            "node": "Generate Prep Brief (OpenAI)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Generate Prep Brief (OpenAI)": {
-      "main": [
-        [
-          {
-            "node": "Format Brief as Email",
+            "node": "Generate Prep Brief (Claude)",
             "type": "main",
             "index": 0
           }
@@ -394,11 +390,22 @@
           }
         ]
       ]
+    },
+    "Generate Prep Brief (Claude)": {
+      "main": [
+        [
+          {
+            "node": "Format Brief as Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
+  "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "pinData": {},
-  "active": false
+  "tags": []
 }
