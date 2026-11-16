@@ -1,0 +1,544 @@
+{
+  "name": "AI Customer Churn Predictor",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# AI Customer Churn Predictor\n\nScores each client's churn risk with transparent rules, then uses an LLM to explain the risk and recommend actions.\n\n**Flow:** CRM webhook > validate > score > AI analysis > log to Airtable > alert the account owner if risk is high or critical.\n\n**Setup**\n1. Add Anthropic, Airtable and SMTP credentials.\n2. Set your Airtable base and table (schema in the README).\n3. Set the From address and fallback To address in the email node.\n4. Point your CRM (or a scheduled job) at the webhook URL.\n\nSample payloads are in the repo's `samples/` folder.",
+        "width": 760,
+        "height": 420
+      },
+      "id": "184bc178-e097-4567-af7b-440bd43b3270",
+      "name": "Note: Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 1. Intake\nReceives client health data from the CRM. Requests without `client_id` and `client_name` get a 400 and stop here. Valid requests get a 202 straight away, so the CRM never waits on the AI step.",
+        "width": 700,
+        "height": 400,
+        "color": 7
+      },
+      "id": "db2dd107-b839-4ddb-92d0-8ae9187a1e16",
+      "name": "Note: Intake",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Score\nRules-based risk score from 0 to 100. Same input, same score, every time. Each signal is listed with the points it added.",
+        "width": 260,
+        "height": 400,
+        "color": 7
+      },
+      "id": "f68b709d-fb18-4825-8056-5ad2e8a23cff",
+      "name": "Note: Score",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        660,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3. AI analysis\nThe LLM explains the score and recommends actions on three timelines. It cannot change the score. Output is forced into a fixed JSON shape.",
+        "width": 300,
+        "height": 640,
+        "color": 7
+      },
+      "id": "a1d761ac-47ae-4578-8c29-e103e359c619",
+      "name": "Note: AI",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        940,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4. Log\nEvery assessment is saved to Airtable, including low-risk ones, so you can track health over time.",
+        "width": 500,
+        "height": 400,
+        "color": 7
+      },
+      "id": "1b443340-d55c-4fae-9000-c7dc883c2597",
+      "name": "Note: Log",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1260,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5. Alert\nOnly high and critical risk triggers an email, sent to the account owner from the payload (or the fallback address).",
+        "width": 760,
+        "height": 560,
+        "color": 7
+      },
+      "id": "00dc6a36-425c-463e-a258-2516efe7a724",
+      "name": "Note: Alert",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "churn-predictor",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f270684b-b34f-4f8f-9c4e-3e4ab5725da2",
+      "name": "CRM Webhook: Client Health Data",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        400
+      ],
+      "webhookId": "ef7f9009-a843-408b-ac5f-40db5483741f"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "22ab8e57-2f07-485e-acbb-4ff6b762f73c",
+              "leftValue": "={{ !!($json.body?.client_id && $json.body?.client_name) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "61951fcd-0ad3-4b39-a41b-6c4d9787371c",
+      "name": "Valid Payload?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'accepted', client_id: $json.body.client_id } }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "d02b1297-caca-4860-82de-2979ba92ef1a",
+      "name": "Respond: 202 Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        440,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'rejected', error: 'client_id and client_name are required' } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "edaaee4d-fb45-45d7-b1ee-62ab21857bf3",
+      "name": "Respond: 400 Invalid Payload",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        440,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Deterministic churn risk score. The LLM explains this score; it never sets it.\nconst b = $json.body ?? $json;\nconst num = (v, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };\n\nconst overdue = num(b.overdue_tasks);\nconst daysSinceContact = num(b.days_since_last_contact);\nconst openTickets = num(b.open_support_tickets);\nconst trend = num(b.engagement_trend_pct);\nconst hasNps = b.nps_score !== undefined && b.nps_score !== null && b.nps_score !== '';\nconst nps = hasNps ? num(b.nps_score, null) : null;\n\nlet risk = 0;\nconst signals = [];\n\nif (overdue > 0) {\n  const p = Math.min(overdue * 8, 30);\n  risk += p; signals.push(`${overdue} overdue task(s) (+${p})`);\n}\nif (daysSinceContact > 30) {\n  risk += 20; signals.push(`No contact in ${daysSinceContact} days (+20)`);\n} else if (daysSinceContact > 14) {\n  risk += 10; signals.push(`No contact in ${daysSinceContact} days (+10)`);\n}\nif (openTickets > 0) {\n  const p = Math.min(openTickets * 5, 20);\n  risk += p; signals.push(`${openTickets} open support ticket(s) (+${p})`);\n}\nif (trend < 0) {\n  const p = Math.round(Math.min(Math.abs(trend) * 0.5, 25));\n  risk += p; signals.push(`Engagement down ${Math.abs(trend)}% vs last period (+${p})`);\n}\nif (nps !== null) {\n  if (nps <= 6) { risk += 15; signals.push(`NPS ${nps} (detractor) (+15)`); }\n  else if (nps <= 8) { risk += 5; signals.push(`NPS ${nps} (passive) (+5)`); }\n}\n\nlet daysToRenewal = null;\nif (b.renewal_date) {\n  const d = new Date(b.renewal_date);\n  if (!isNaN(d)) daysToRenewal = Math.ceil((d - new Date()) / 86400000);\n}\nif (daysToRenewal !== null && daysToRenewal >= 0 && daysToRenewal <= 60 && risk >= 30) {\n  risk += 10; signals.push(`Renewal in ${daysToRenewal} days while at risk (+10)`);\n}\n\nrisk = Math.min(risk, 100);\nconst level = risk >= 70 ? 'critical' : risk >= 50 ? 'high' : risk >= 30 ? 'medium' : 'low';\n\nreturn {\n  json: {\n    client_id: String(b.client_id),\n    client_name: b.client_name,\n    account_owner_email: b.account_owner_email || null,\n    renewal_date: b.renewal_date || null,\n    days_to_renewal: daysToRenewal,\n    risk_score: risk,\n    risk_level: level,\n    risk_signals: signals,\n    input: b,\n  },\n};\n"
+      },
+      "id": "6b1f5e7e-cd5a-41cc-bb97-1881865dbc5d",
+      "name": "Compute Health Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a customer success analyst. A rules-based model has already scored this client's churn risk. Do not change the score or the risk level. Your job is to explain the risk and recommend actions.\n\nClient: {{ $json.client_name }} ({{ $json.client_id }})\nRisk score: {{ $json.risk_score }}/100 ({{ $json.risk_level }})\nDays to renewal: {{ $json.days_to_renewal ?? 'unknown' }}\nSignals that raised the score:\n{{ $json.risk_signals.length ? $json.risk_signals.map(s => '- ' + s).join('\\n') : '- None' }}\n\nFull client data:\n{{ JSON.stringify($json.input, null, 2) }}\n\nRules:\n- Base every statement on the data above. Do not invent facts.\n- Immediate actions: within 48 hours. Short-term: within 2 weeks. Long-term: this quarter.\n- Give 1 to 3 actions per timeline. Start each action with a verb.\n- If the risk level is low, keep actions light and focused on maintaining the relationship.",
+        "hasOutputParser": true
+      },
+      "id": "a17deb92-499b-4933-8325-6e86db24edf3",
+      "name": "AI: Explain Risk & Recommend Actions",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        1000,
+        320
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "id",
+          "value": "claude-sonnet-4-5"
+        },
+        "options": {
+          "maxTokensToSample": 2000,
+          "temperature": 0.2
+        }
+      },
+      "id": "f4b277cc-8dc1-4d1e-a50a-81bb430df916",
+      "name": "Anthropic Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        960,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"summary\": \"Two sentences on why this client is at risk, grounded in the data.\",\n  \"primary_risk_driver\": \"The single biggest reason for the risk.\",\n  \"actions_immediate\": [\n    \"Call the main contact to address the overdue onboarding tasks\"\n  ],\n  \"actions_short_term\": [\n    \"Run a usage review session with their team\"\n  ],\n  \"actions_long_term\": [\n    \"Agree a success plan with measurable goals before renewal\"\n  ]\n}"
+      },
+      "id": "c8e8ecf7-5c04-4863-afe3-78caa4d7694d",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1120,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Combine the score with the AI output into one flat record for Airtable.\nconst s = $('Compute Health Score').item.json;\nconst ai = $json.output;\nconst bullets = (arr) => (Array.isArray(arr) && arr.length ? arr.map((a) => `- ${a}`).join('\\n') : '- None');\n\nreturn {\n  json: {\n    assessed_at: new Date().toISOString(),\n    client_id: s.client_id,\n    client_name: s.client_name,\n    account_owner_email: s.account_owner_email,\n    risk_score: s.risk_score,\n    risk_level: s.risk_level,\n    days_to_renewal: s.days_to_renewal,\n    risk_signals: bullets(s.risk_signals),\n    summary: ai.summary,\n    primary_risk_driver: ai.primary_risk_driver,\n    actions_immediate: bullets(ai.actions_immediate),\n    actions_short_term: bullets(ai.actions_short_term),\n    actions_long_term: bullets(ai.actions_long_term),\n  },\n};\n"
+      },
+      "id": "a0aeea34-d4de-405b-8bf3-7ab03bb0352e",
+      "name": "Build Assessment Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": ""
+        },
+        "table": {
+          "__rl": true,
+          "mode": "id",
+          "value": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "bfff6d9b-2d88-40cc-a549-26d66fe20111",
+      "name": "Airtable: Log Assessment",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1560,
+        320
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "01a15d5e-ce31-4e81-bf3d-30eba060224f",
+              "leftValue": "={{ ['high', 'critical'].includes($json.risk_level) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "89a60c8c-ae67-4c91-83e7-8a1f9110a076",
+      "name": "High or Critical Risk?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1840,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Build a short, readable alert. Markdown is converted to HTML in the next node.\nconst r = $json;\nconst subject = `Churn risk ${r.risk_level.toUpperCase()}: ${r.client_name} (score ${r.risk_score}/100)`;\nconst renewal = r.days_to_renewal !== null && r.days_to_renewal !== undefined\n  ? `Renewal in **${r.days_to_renewal} days**.`\n  : '';\n\nconst markdown = [\n  `**${r.client_name}** (${r.client_id}) is at **${r.risk_level}** churn risk with a score of **${r.risk_score}/100**. ${renewal}`,\n  '',\n  r.summary,\n  '',\n  '### What raised the score',\n  r.risk_signals,\n  '',\n  '### Do now (next 48 hours)',\n  r.actions_immediate,\n  '',\n  '### Next 2 weeks',\n  r.actions_short_term,\n  '',\n  '### This quarter',\n  r.actions_long_term,\n].join('\\n');\n\nreturn { json: { ...r, email_subject: subject, email_markdown: markdown } };\n"
+      },
+      "id": "8d629e1b-f357-4737-b1ca-461199e89a65",
+      "name": "Build Alert Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2060,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "markdownToHtml",
+        "markdown": "={{ $json.email_markdown }}",
+        "destinationKey": "email_html",
+        "options": {}
+      },
+      "id": "95fa92b7-397f-4f4e-929a-3d066117ad22",
+      "name": "Markdown to HTML",
+      "type": "n8n-nodes-base.markdown",
+      "typeVersion": 1,
+      "position": [
+        2260,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "alerts@yourcompany.com",
+        "toEmail": "={{ $json.account_owner_email || 'cs-team@yourcompany.com' }}",
+        "subject": "={{ $json.email_subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.email_html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "8f9b9fe6-2ce3-4aa3-9338-7b1f0f3bfb79",
+      "name": "Email: Alert Account Owner",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2440,
+        240
+      ],
+      "webhookId": "cf1d1e40-dd88-42e3-98b6-b936c178a786"
+    },
+    {
+      "parameters": {},
+      "id": "37f673dd-381d-48ad-92f6-6418a8ed14a8",
+      "name": "No Alert Needed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2060,
+        460
+      ]
+    }
+  ],
+  "connections": {
+    "CRM Webhook: Client Health Data": {
+      "main": [
+        [
+          {
+            "node": "Valid Payload?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Payload?": {
+      "main": [
+        [
+          {
+            "node": "Respond: 202 Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: 400 Invalid Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond: 202 Accepted": {
+      "main": [
+        [
+          {
+            "node": "Compute Health Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Health Score": {
+      "main": [
+        [
+          {
+            "node": "AI: Explain Risk & Recommend Actions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: Explain Risk & Recommend Actions": {
+      "main": [
+        [
+          {
+            "node": "Build Assessment Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Assessment Record": {
+      "main": [
+        [
+          {
+            "node": "Airtable: Log Assessment",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "High or Critical Risk?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High or Critical Risk?": {
+      "main": [
+        [
+          {
+            "node": "Build Alert Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Alert Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Alert Email": {
+      "main": [
+        [
+          {
+            "node": "Markdown to HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Markdown to HTML": {
+      "main": [
+        [
+          {
+            "node": "Email: Alert Account Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI: Explain Risk & Recommend Actions",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI: Explain Risk & Recommend Actions",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

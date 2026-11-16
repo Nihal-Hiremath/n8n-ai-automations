@@ -1,0 +1,15 @@
+{
+  "client_id": "C-2087",
+  "client_name": "Harbor Lane Properties",
+  "account_owner_email": "owner@yourcompany.com",
+  "contract_value": 9500,
+  "renewal_date": "2027-06-30",
+  "days_since_last_contact": 20,
+  "overdue_tasks": 1,
+  "open_support_tickets": 1,
+  "engagement_trend_pct": -12,
+  "nps_score": 7,
+  "recent_notes": [
+    "Onboarding of second team delayed by one week"
+  ]
+}

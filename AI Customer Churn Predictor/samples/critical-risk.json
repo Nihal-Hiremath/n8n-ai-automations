@@ -1,0 +1,16 @@
+{
+  "client_id": "C-1042",
+  "client_name": "Northwind Realty",
+  "account_owner_email": "owner@yourcompany.com",
+  "contract_value": 18000,
+  "renewal_date": "2027-01-10",
+  "days_since_last_contact": 38,
+  "overdue_tasks": 3,
+  "open_support_tickets": 2,
+  "engagement_trend_pct": -35,
+  "nps_score": 5,
+  "recent_notes": [
+    "Client asked twice for the Q3 report, still not delivered",
+    "Main contact mentioned budget review in January"
+  ]
+}
